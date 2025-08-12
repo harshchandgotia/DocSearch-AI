@@ -1,0 +1,16 @@
+fastapi
+fastapi[standard]
+beautifulsoup4
+sentence-transformers
+requests
+pinecone
+dotenv
+easyocr
+numpy
+openai
+pdf2image
+langchain
+langchain-openai
+langchain-pinecone
+langchain-huggingface
+langchain-community
