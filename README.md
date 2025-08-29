@@ -32,7 +32,7 @@ pip install -r requirements.txt
 Create a `.env` file with:
 
 ```
-API_KEY=your_fastapi_key
+API_KEY=authorization_key
 PINECONE_API_KEY=your_pinecone_key
 GROQ_API_KEY=your_groq_key
 ```
