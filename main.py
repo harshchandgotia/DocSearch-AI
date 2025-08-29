@@ -21,7 +21,6 @@ load_dotenv()
 reader = easyocr.Reader(['en'], gpu=False)
 
 
-
 web_app = FastAPI()
 API_TOKEN = os.getenv("API_KEY")
 
@@ -43,11 +42,10 @@ def ocr_page(page_tuple):
     page_texts = "\n".join(texts) if texts else "[No text detected]"
     return page_num, f"-- Page {page_num} --\n{page_texts}"
 
-@web_app.post("/", response_class=JSONResponse)
+@web_app.post("/extract", response_class=JSONResponse)
 async def text_extraction_pipeline(request: Request):
     data = await request.json()
     url = data.get("documents")
-    questions = data.get("questions")
     if not url:
         return JSONResponse({"error": "'url' field is required"}, status_code=400)
 
@@ -79,11 +77,27 @@ async def text_extraction_pipeline(request: Request):
 
         # Send to LLM
         pdfData = "<br><br>".join(page_texts)
-        llm_response = generate_response(pdfData, questions)
+        # llm_response = generate_response(pdfData, questions)
 
-        return JSONResponse({"answers": llm_response}, status_code=200)
+        return JSONResponse({"pdf_data": pdfData}, status_code=200)
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+    
 
+@web_app.post("/query", response_class=JSONResponse)
+async def get_answers(request: Request):
+    data = await request.json()
+    pdf_data = data.get('pdf_data')
+    questions = data.get("questions")
+
+    if not all([pdf_data, questions]):
+        return JSONResponse({"error": "'pdf_data' and 'questions' fields are required"}, status_code=400)
+
+    try:
+        llm_response = generate_response(pdf_data, questions) 
+        return JSONResponse({"answers": llm_response}, status_code=200) 
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
