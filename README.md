@@ -2,7 +2,7 @@
 
 ## Overview
 
-DocSearch is an intelligent document query system that extracts text from PDFs using OCR and enables semantic search and question-answering through vector databases and LLMs. It is designed for fast, accurate, and concurrent querying of large documents.
+DocSearch is an intelligent document query system that extracts text from PDFs using OCR and enables semantic search and question-answering through vector databases and LLMs. It is designed for fast, accurate, and concurrent querying of large documents. It can ingest multiple documents in the vector database, each with a unique document ID of their own
 
 ## Features
 
@@ -16,8 +16,8 @@ DocSearch is an intelligent document query system that extracts text from PDFs u
 1. **PDF Upload & Conversion**: Converts PDFs into images using `pdf2image`.
 2. **Text Extraction**: Extracts text from images via EasyOCR.
 3. **Vectorization**: Splits extracted text and embeds it using `all-MiniLM-L6-v2`.
-4. **Indexing**: Stores embeddings in Pinecone for semantic retrieval.
-5. **Query Handling**: Uses LangChain RetrievalQA to fetch and answer user questions.
+4. **Indexing**: Stores embeddings in Pinecone for semantic retrieval, with metadata linking them to their document ID.
+5. **Query Handling**: Uses LangChain RetrievalQA to fetch and answer user questions, which are mapped to document IDs.
 
 ## Installation
 
