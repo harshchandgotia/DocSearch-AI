@@ -2,7 +2,7 @@
 
 ## Overview
 
-DocSearch is an intelligent document query system that extracts text from PDFs using OCR and enables semantic search and question-answering through vector databases and LLMs. It is designed for fast, accurate, and concurrent querying of large documents. It can ingest multiple documents in the vector database, each with a unique document ID of their own
+DocSearch is an intelligent document query system that extracts text from PDFs using OCR and enables semantic search and question-answering through vector databases and LLMs. It is designed for fast, accurate, and concurrent querying of large documents. It can ingest multiple documents in the vector database, each with a unique document ID of their own.
 
 ## Features
 
