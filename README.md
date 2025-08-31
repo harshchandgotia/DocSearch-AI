@@ -51,7 +51,7 @@ POST request to `/extract` with JSON:
 
 ```json
 {
-  "documents": "https://example.com/sample.pdf"
+  "documents": ["https://example1.com/sample.pdf", "https://example2.com/sample.pdf"]
 }
 ```
 
@@ -61,8 +61,7 @@ POST request to `/query` with JSON:
 
 ```json
 {
-  "pdf_data": "extracted_text_here",
-  "questions": ["What is the summary?", "Who is the author?"]
+  "questions": {"doc_id": "What is the summary?", "doc_id": "Who is the author?"}
 }
 ```
 
