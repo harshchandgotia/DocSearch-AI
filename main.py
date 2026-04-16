@@ -7,14 +7,24 @@ from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, field_validator
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 import easyocr
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import uuid
 from urllib.parse import urlparse
 
-from vector_db import ingest_document, retrieval, delete_document
+from vector_db import ingest_document, run_query, delete_document
+from database import (
+    create_session,
+    get_session,
+    list_sessions,
+    delete_session,
+    add_message,
+    get_messages,
+    update_session_title,
+    update_session_pdf_ids,
+)
 
 load_dotenv()
 
@@ -32,27 +42,20 @@ class ExtractRequest(BaseModel):
         return v
 
 
-class QuestionItem(BaseModel):
-    pdf_id: str
-    questions: List[str]
-
-    @field_validator("questions")
-    @classmethod
-    def questions_not_empty(cls, v):
-        if not v:
-            raise ValueError("questions must be a non-empty list")
-        return v
+class SingleQueryRequest(BaseModel):
+    question: str
+    pinned_pdf_ids: List[str]
+    session_id: Optional[str] = None
 
 
-class QueryRequest(BaseModel):
-    questions: List[QuestionItem]
+class CreateSessionRequest(BaseModel):
+    pinned_pdf_ids: List[str]
+    title: Optional[str] = None
 
-    @field_validator("questions")
-    @classmethod
-    def questions_list_not_empty(cls, v):
-        if not v:
-            raise ValueError("questions list must be non-empty")
-        return v
+
+class UpdateSessionRequest(BaseModel):
+    pinned_pdf_ids: Optional[List[str]] = None
+    title: Optional[str] = None
 
 
 # Load EasyOCR once (expensive to initialise per-request)
@@ -152,11 +155,116 @@ async def file_upload_pipeline(files: List[UploadFile] = File(...)):
 
 
 @web_app.post("/query", response_class=JSONResponse)
-async def get_answers(body: QueryRequest):
+async def query_documents(body: SingleQueryRequest):
     try:
-        questions_payload = [item.model_dump() for item in body.questions]
-        llm_response = retrieval(questions_payload)
-        return JSONResponse({"answers": llm_response}, status_code=200)
+        conversation_history = []
+        session_id = body.session_id
+
+        if session_id:
+            messages = get_messages(session_id)
+            conversation_history = [
+                {"role": m["role"], "content": m["content"]} for m in messages
+            ]
+
+        result = run_query(body.question, body.pinned_pdf_ids, conversation_history)
+
+        # Save messages to database if session exists
+        if session_id:
+            add_message(session_id, "user", body.question)
+            add_message(session_id, "assistant", result["answer"], metadata={
+                "is_supported": result["is_supported"],
+                "is_useful": result["is_useful"],
+                "revision_count": result["revision_count"],
+                "rewrite_count": result["rewrite_count"],
+                "sources": result["sources"],
+                "retrieval_used": result["retrieval_used"],
+            })
+
+            # Auto-generate session title from first question
+            session = get_session(session_id)
+            if session and not session.get("title"):
+                title = body.question[:60]
+                update_session_title(session_id, title)
+
+        return JSONResponse({
+            "answer": result["answer"],
+            "is_supported": result["is_supported"],
+            "is_useful": result["is_useful"],
+            "revision_count": result["revision_count"],
+            "rewrite_count": result["rewrite_count"],
+            "sources": result["sources"],
+            "retrieval_used": result["retrieval_used"],
+            "no_answer": result["no_answer"],
+            "session_id": session_id,
+        }, status_code=200)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@web_app.post("/sessions", response_class=JSONResponse)
+async def create_new_session(body: CreateSessionRequest):
+    try:
+        title = body.title or ""
+        session_id = create_session(body.pinned_pdf_ids, title)
+        session = get_session(session_id)
+        return JSONResponse({
+            "session_id": session["session_id"],
+            "created_at": session["created_at"],
+            "pinned_pdf_ids": session["pinned_pdf_ids"],
+            "title": session["title"],
+        }, status_code=200)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@web_app.get("/sessions", response_class=JSONResponse)
+async def get_all_sessions():
+    try:
+        sessions = list_sessions()
+        return JSONResponse({"sessions": sessions}, status_code=200)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@web_app.get("/sessions/{session_id}/messages", response_class=JSONResponse)
+async def get_session_messages(session_id: str):
+    try:
+        messages = get_messages(session_id)
+        return JSONResponse({
+            "session_id": session_id,
+            "messages": messages,
+        }, status_code=200)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@web_app.delete("/sessions/{session_id}", response_class=JSONResponse)
+async def remove_session(session_id: str):
+    try:
+        delete_session(session_id)
+        return JSONResponse({"deleted": session_id}, status_code=200)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@web_app.patch("/sessions/{session_id}", response_class=JSONResponse)
+async def update_existing_session(session_id: str, body: UpdateSessionRequest):
+    try:
+        session = get_session(session_id)
+        if not session:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+
+        if body.pinned_pdf_ids is not None:
+            update_session_pdf_ids(session_id, body.pinned_pdf_ids)
+        if body.title is not None:
+            update_session_title(session_id, body.title)
+
+        updated_session = get_session(session_id)
+        return JSONResponse({
+            "session_id": updated_session["session_id"],
+            "pinned_pdf_ids": updated_session["pinned_pdf_ids"],
+            "title": updated_session["title"],
+        }, status_code=200)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

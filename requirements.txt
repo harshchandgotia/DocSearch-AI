@@ -15,4 +15,8 @@ langchain-pinecone
 langchain-huggingface
 langchain-community
 langchain-text-splitters
+langchain-groq
 python-multipart
+langgraph
+pyyaml
+langchain-classic

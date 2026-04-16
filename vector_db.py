@@ -1,17 +1,19 @@
-# Importing dependencies
 import os
 from dotenv import load_dotenv
 from chunker import text_splitter
-from langchain_core.documents import Document
+from langchain_classic.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_classic.chains import RetrievalQA
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 from uuid import uuid4
 from langchain_openai import ChatOpenAI
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from langchain_groq import ChatGroq
+from config import load_config
+from graph.builder import build_graph
 
 load_dotenv()
+
+config = load_config()
 
 
 def create_pineconeInstance():
@@ -30,28 +32,21 @@ def create_pineconeInstance():
     return index
 
 
-def process_questions(index_tuple, pdf_id, question):
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_store.as_retriever(search_kwargs={'filter': {'pdf_id': pdf_id}})
-    )
-    return index_tuple, qa.invoke(question)["result"]
-
-
 # Global initialization of models and vector store
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embedding_model = HuggingFaceEmbeddings(model_name=config["embeddings"]["model"])
 
-llm = ChatOpenAI(
+llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1",
-    model="llama-3.3-70b-versatile",
-    temperature=0.1,
-    max_tokens=128
+    model=config["llm"]["groq_model"],
+    temperature=config["llm"]["temperature"],
+    max_tokens=config["llm"]["max_tokens"],
 )
 
 index = create_pineconeInstance()
 vector_store = PineconeVectorStore(index=index, embedding=embedding_model)
+
+# Build Self-RAG graph once at module load
+self_rag_graph = build_graph(config, llm, vector_store)
 
 
 def ingest_document(extracted_text: str, pdf_id: str):
@@ -61,42 +56,39 @@ def ingest_document(extracted_text: str, pdf_id: str):
     vector_store.add_documents(documents=documents, ids=uuids)
 
 
-def retrieval(questions):
-    # questions is a list of { "pdf_id": str, "questions": [str] }
-    # Flatten into (doc_index, q_index, pdf_id, question) tuples for concurrent execution
-    tasks = []
-    for doc_index, item in enumerate(questions):
-        pdf_id = item["pdf_id"]
-        for q_index, q_text in enumerate(item["questions"]):
-            tasks.append((doc_index, q_index, pdf_id, q_text))
+def run_query(question: str, pinned_pdf_ids: list[str], conversation_history: list[dict]) -> dict:
+    initial_state = {
+        "question": question,
+        "original_question": question,
+        "conversation_history": conversation_history,
+        "pinned_pdf_ids": pinned_pdf_ids,
+        "needs_retrieval": False,
+        "retrieval_query": question,
+        "documents": [],
+        "relevant_docs": [],
+        "context": "",
+        "answer": "",
+        "is_supported": "",
+        "is_useful": "",
+        "revision_count": 0,
+        "rewrite_count": 0,
+        "sources": [],
+        "retrieval_used": False,
+        "no_answer": False,
+    }
 
-    raw_results = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(process_questions, (doc_index, q_index), pdf_id, q_text): (doc_index, q_index)
-            for doc_index, q_index, pdf_id, q_text in tasks
-        }
-        for future in as_completed(futures):
-            (doc_index, q_index), answer = future.result()
-            raw_results.append((doc_index, q_index, answer))
+    result = self_rag_graph.invoke(initial_state)
 
-    # Sort by doc_index then q_index to restore original order
-    raw_results.sort(key=lambda x: (x[0], x[1]))
-
-    # Reconstruct grouped response mirroring input structure
-    response = []
-    for doc_index, item in enumerate(questions):
-        answers_for_doc = [
-            answer
-            for d_idx, q_idx, answer in raw_results
-            if d_idx == doc_index
-        ]
-        response.append({
-            "pdf_id": item["pdf_id"],
-            "answers": answers_for_doc
-        })
-
-    return response
+    return {
+        "answer": result.get("answer", ""),
+        "is_supported": result.get("is_supported", ""),
+        "is_useful": result.get("is_useful", ""),
+        "revision_count": result.get("revision_count", 0),
+        "rewrite_count": result.get("rewrite_count", 0),
+        "sources": result.get("sources", []),
+        "retrieval_used": result.get("retrieval_used", False),
+        "no_answer": result.get("no_answer", False),
+    }
 
 
 def delete_document(pdf_id: str):

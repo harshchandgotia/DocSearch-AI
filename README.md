@@ -2,134 +2,157 @@
 
 ## Overview
 
-DocSearch AI is an intelligent document query system that extracts text from PDFs using OCR and enables semantic search and question-answering through vector databases and LLMs. It supports both direct PDF file uploads and URL-based ingestion, and can handle multiple documents concurrently, each with a unique document ID.
+DocSearch AI is an advanced, visually interactive document querying system. It employs optical character recognition (OCR) natively on uploaded documents to construct multi-tenant semantic vector databases logic, seamlessly routing queries through an agentic **Self-RAG (Retrieval-Augmented Generation)** framework executed via LangGraph. 
+
+It handles multiple concurrent sessions, PDF multi-document pinning, and evaluates its own answers dynamically against hallucination faults.
 
 ## Features
 
-- **OCR-based Text Extraction**: Uses EasyOCR to process PDF pages, including scanned and image-based documents.
-- **Semantic Search & QA**: Employs Pinecone vector store with HuggingFace embeddings for contextual retrieval.
-- **LLM-powered Answers**: Integrates Groq (llama-3.3-70b) via a LangChain RetrievalQA chain for precise question answering.
-- **Scalable & Fast**: Built on FastAPI with multithreading for concurrent OCR and query processing.
-- **Streamlit UI**: A browser-based interface for uploading documents and querying them interactively.
+- **OCR-based Text Extraction**: Uses EasyOCR to process standard and scanned PDF pages across simultaneous requests.
+- **Agentic Self-RAG QA Pipeline**: Engineered with LangGraph to determine *when* to retrieve, grade document context relevancy iteratively, filter hallucinated generations, and actively rewrite queries if an answer is inherently useless.
+- **Native ChatGroq Integration**: Incorporates `langchain-groq` natively to invoke strict JSON-based schema structuring models over `llama-3.3-70b-versatile`, ensuring determinism in pipeline routers.
+- **Session State & Multi-Document Pinning**: Allows continuous chat dialogues bounded correctly via database session histories bridging across multiple isolated PDF clusters.
+- **Streamlit Frontend**: Interactively integrates upload ingestion, chat sessions, API key isolation, and deep metadata transparency metrics (sources, revision counts, support status).
 
 ## Architecture
 
-1. **PDF Ingestion**: PDFs arrive either as direct file uploads (`/upload`) or as URLs (`/extract`).
-2. **OCR**: Each page is converted to an image via `pdf2image` and processed in parallel with EasyOCR.
-3. **Chunking & Embedding**: Extracted text is split into 400-character chunks (100-char overlap) and embedded using `all-MiniLM-L6-v2`.
-4. **Indexing**: Embeddings are stored in Pinecone with a `pdf_id` metadata tag for per-document isolation.
-5. **Query Handling**: LangChain RetrievalQA retrieves relevant chunks filtered by `pdf_id` and passes them to the Groq LLM for answer generation.
+The system pipeline revolves around two major lifecycles: **Ingestion** and **Autonomous Self-RAG Generation**:
 
-## Installation
+```mermaid
+graph TD
+    %% Ingestion Flow
+    U[User Client] -->|Upload PDF / Extract URL| API[FastAPI Server]
+    API --> |pdf2image & easyOCR| EXT[Extracted Text]
+    EXT --> |Chunking| CH[RecursiveCharacterTextSplitter]
+    CH --> |all-MiniLM-L6-v2 Embeddings| PC[(Pinecone Vector DB)]
 
+    %% Query Flow
+    U -->|POST /query| Q[Query Endpoint]
+    Q --> LG
+    
+    %% LangGraph Architecture
+    subgraph LG[LangGraph Self-RAG Pipeline]
+        direction TB
+        START((Input Query)) --> DR{Decide Retrieval}
+        DR -->|General Knowledge| DG[Direct Generate]
+        DR -->|Retrieve Needed| R[Retrieve from Pinecone]
+        
+        R --> GD[Grade Document Relevancy]
+        GD -->|Relevant| GC[Generate from Context]
+        GD -->|No Relevant Docs| ND[Trigger: No Docs Found]
+        
+        GC --> HC{Check Hallucination}
+        HC -->|Not Supported| RA[Revise Answer]
+        RA --> HC
+        
+        HC -->|Fully Supported| CU{Check Usefulness}
+        
+        CU -->|Useful| END((Final Answer Output))
+        CU -->|Not Useful| RQ[Rewrite Query]
+        RQ --> R
+    end
+    
+    LG <-.->|Decision Structuring & Answering| LLM((Groq LLM))
+    PC <-.-> R
+    DG --> END
+    ND --> END
+```
+
+## Setup & Installation
+
+### System Dependencies
+The image conversion heavily utilizes `poppler` bindings. You must ensure `poppler-utils` is installed on your host system:
+- **macOS:** `brew install poppler`
+- **Linux:** `sudo apt-get install poppler-utils`
+- **Windows:** Download the latest poppler binaries, extract it, and map its `bin` folder onto your OS `PATH`.
+
+### Local Deployment
 ```bash
 git clone <repo_url>
 cd DocSearch-AI
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+
+# Install Python requirements
 pip install -r requirements.txt
 ```
 
-## Environment Variables
-
-Create a `.env` file (see `.env.example`):
-
-```
-API_KEY=your_bearer_token_here
-PINECONE_API_KEY=your_pinecone_api_key_here
+### Environment Variables
+Create a root `.env` file referencing your backend credentials:
+```env
+API_KEY=your_generic_api_bearer_token 
+PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_INDEX_NAME=docsearch-ai
-GROQ_API_KEY=your_groq_api_key_here
+GROQ_API_KEY=your_groq_api_key
 ```
 
-## Usage
+---
 
-### 1. Start the API server
+## Usage Guide
 
+1. **Spin up the Backend Server**
 ```bash
 uvicorn main:web_app --reload
 ```
-
-### 2. Start the Streamlit UI (optional)
-
+2. **Launch the User Interface** 
 ```bash
 streamlit run app.py
 ```
 
-### 3. Upload PDF files directly
+### API Reference Endpoints
 
-`POST /upload` — multipart/form-data, field name `files`:
+#### 1. Ingest Direct File Uploads
+**POST** `/upload` 
 
-```bash
-curl -X POST http://localhost:8000/upload \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "files=@/path/to/document.pdf" \
-  -F "files=@/path/to/another.pdf"
-```
+**Headers:** `Authorization: Bearer <API_KEY>`
 
-### 4. Upload PDFs via URL
-
-`POST /extract` — JSON body:
-
-```bash
-curl -X POST http://localhost:8000/extract \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"documents": ["https://example.com/report.pdf"]}'
-```
-
-Both endpoints return the same format:
-
+Accepts `multipart/form-data` with `files`. Multiple files can be passed simultaneously.
 ```json
 {
   "Files uploaded": {
-    "3f7a8b2c-1234-5678-abcd-ef0123456789": "report.pdf"
+    "ab123456-c789-0123-d456-e78901234f56": "quarterly_earnings.pdf"
   }
 }
 ```
 
-### 5. Query documents
+#### 2. Process QA Queries through Self-RAG
+**POST** `/query`
 
-`POST /query` — JSON body. Each item maps a `pdf_id` to a list of questions:
-
+Pass the `pdf_ids` previously acquired iteratively and optionally string to persistent chat threads via `session_id`.
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "questions": [
-      {
-        "pdf_id": "3f7a8b2c-1234-5678-abcd-ef0123456789",
-        "questions": ["What is the summary?", "Who is the author?"]
-      }
-    ]
+    "question": "What were the major growth drivers mentioned?",
+    "pinned_pdf_ids": ["ab123456-c789-0123-d456-e78901234f56"],
+    "session_id": "c138bca-..." 
   }'
 ```
 
-Response:
-
+**Self-RAG Augmented Response:**
 ```json
 {
-  "answers": [
-    {
-      "pdf_id": "3f7a8b2c-1234-5678-abcd-ef0123456789",
-      "answers": [
-        "The document summarises...",
-        "The author is..."
-      ]
-    }
-  ]
+  "answer": "The major growth drivers mentioned were software licensing and regional logistics expansions.",
+  "is_supported": "fully_supported",
+  "is_useful": "useful",
+  "revision_count": 0,
+  "rewrite_count": 0,
+  "sources": ["ab123456-c789-0123-d456-e78901234f56"],
+  "retrieval_used": true,
+  "session_id": "c138bca-..."
 }
 ```
 
-### 6. Delete a document
-
-`DELETE /documents/{pdf_id}` — removes all embeddings for that document from Pinecone:
-
-```bash
-curl -X DELETE http://localhost:8000/documents/3f7a8b2c-1234-5678-abcd-ef0123456789 \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-Response:
+#### 3. Creating & Managing Isolated Chart Sessions
+**POST** `/sessions`
+Provides isolated context strings connecting historical history to exact document configurations securely bounded together via `sqlite3`.
 
 ```json
-{"deleted": "3f7a8b2c-1234-5678-abcd-ef0123456789"}
+{
+    "pinned_pdf_ids": ["ab123456-c789-0123-d456-e78901234f56"],
+    "title": "Earnings Q3 Discussion"
+}
 ```
