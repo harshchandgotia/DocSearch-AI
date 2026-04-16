@@ -20,78 +20,42 @@ The system has two pipelines: **Document Ingestion** and **Self-RAG Query**.
 
 ### Document Ingestion
 
-```
-PDF Upload / URL  -->  pdf2image + EasyOCR  -->  Chunking  -->  Embeddings  -->  Pinecone
-                                                (400 chars,     (all-MiniLM-     (vector
-                                                100 overlap)     L6-v2)          store)
+```mermaid
+flowchart LR
+    A([PDF Upload / URL]) --> B[pdf2image\n+ EasyOCR]
+    B --> C[Chunking\n400 chars · 100 overlap]
+    C --> D[Embeddings\nall-MiniLM-L6-v2]
+    D --> E[(Pinecone\nvector store)]
 ```
 
 ### Self-RAG Query Pipeline (LangGraph)
 
 When a user asks a question, it flows through an agentic graph that decides whether to retrieve, validates its own answers, and self-corrects:
+```mermaid
+flowchart TD
+    Q([User Question]) --> DR{Needs retrieval?}
 
-```
-                         +-------------------+
-                         |   User Question   |
-                         +--------+----------+
-                                  |
-                                  v
-                      +-----------+-----------+
-                      |  Decide Retrieval     |
-                      |  (needs documents?)   |
-                      +-----+----------+------+
-                            |          |
-                     YES    |          |   NO
-                            v          v
-                  +---------+--+   +---+---------------+
-                  |  Retrieve  |   |  Direct Generate  |----> Final Answer
-                  |  (Pinecone)|   |  (general knowledge)
-                  +-----+------+   +-------------------+
-                        |
-                        v
-              +---------+---------+
-              |  Grade Documents  |
-              |  (relevant?)      |
-              +----+--------+-----+
-                   |        |
-              RELEVANT   NO RELEVANT DOCS
-                   |        |
-                   v        v
-          +--------+----+  +--------------+
-          |  Generate   |  | "No reliable |----> Final Answer
-          |  from       |  |  answer"     |
-          |  Context    |  +--------------+
-          +------+------+
-                 |
-                 v
-        +--------+-----------+
-        |  Check Hallucination|
-        |  (grounded in docs?)|
-        +---+------+-----+---+
-            |      |     |
-         FULLY  PARTIAL/ MAX
-       SUPPORTED  NOT   RETRIES
-            |   SUPPORTED  |
-            |      |       v
-            |      v    +---------+
-            |  +---+--+ | "No    |----> Final Answer
-            |  |Revise| | reliable|
-            |  |Answer|--+ answer"|
-            |  +------+ +---------+
-            v     (loops back to Check Hallucination,
-     +------+--------+     up to 3 revisions)
-     | Check Usefulness|
-     | (answers the    |
-     |  question?)     |
-     +---+--------+----+
-         |        |
-       USEFUL  NOT USEFUL
-         |        |
-         v        v
-   Final Answer  +----------+
-                 | Rewrite  |
-                 | Query    |---> (loops back to Retrieve,
-                 +----------+      up to 3 rewrites)
+    DR -->|Yes| RET[Retrieve from Pinecone]
+    DR -->|No| DG[Direct Generate\nfrom general knowledge]
+    DG --> FA1([Final Answer])
+
+    RET --> GD{Grade documents\nrelevant?}
+
+    GD -->|Relevant| GEN[Generate\nfrom context]
+    GD -->|No relevant docs| NR([No reliable answer])
+
+    GEN --> CH{Check hallucination\ngrounded in docs?}
+
+    CH -->|Fully supported| CU{Check usefulness\nanswers question?}
+    CH -->|Partial / not supported| REV[Revise Answer\nup to 3×]
+    CH -->|Max retries| MR([No reliable answer])
+
+    REV --> CH
+
+    CU -->|Useful| FA2([Final Answer])
+    CU -->|Not useful| RW[Rewrite Query\nup to 3×]
+
+    RW --> RET
 ```
 
 ### Key Design Decisions
