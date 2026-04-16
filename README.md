@@ -16,47 +16,94 @@ It handles multiple concurrent sessions, PDF multi-document pinning, and evaluat
 
 ## Architecture
 
-The system pipeline revolves around two major lifecycles: **Ingestion** and **Autonomous Self-RAG Generation**:
+The system has two pipelines: **Document Ingestion** and **Self-RAG Query**.
 
-```mermaid
-graph TD
-    %% Ingestion Flow
-    U[User Client] -->|Upload PDF / Extract URL| API[FastAPI Server]
-    API --> |pdf2image & easyOCR| EXT[Extracted Text]
-    EXT --> |Chunking| CH[RecursiveCharacterTextSplitter]
-    CH --> |all-MiniLM-L6-v2 Embeddings| PC[(Pinecone Vector DB)]
+### Document Ingestion
 
-    %% Query Flow
-    U -->|POST /query| Q[Query Endpoint]
-    Q --> LG
-    
-    %% LangGraph Architecture
-    subgraph LG[LangGraph Self-RAG Pipeline]
-        direction TB
-        START((Input Query)) --> DR{Decide Retrieval}
-        DR -->|General Knowledge| DG[Direct Generate]
-        DR -->|Retrieve Needed| R[Retrieve from Pinecone]
-        
-        R --> GD[Grade Document Relevancy]
-        GD -->|Relevant| GC[Generate from Context]
-        GD -->|No Relevant Docs| ND[Trigger: No Docs Found]
-        
-        GC --> HC{Check Hallucination}
-        HC -->|Not Supported| RA[Revise Answer]
-        RA --> HC
-        
-        HC -->|Fully Supported| CU{Check Usefulness}
-        
-        CU -->|Useful| END((Final Answer Output))
-        CU -->|Not Useful| RQ[Rewrite Query]
-        RQ --> R
-    end
-    
-    LG <-.->|Decision Structuring & Answering| LLM((Groq LLM))
-    PC <-.-> R
-    DG --> END
-    ND --> END
 ```
+PDF Upload / URL  -->  pdf2image + EasyOCR  -->  Chunking  -->  Embeddings  -->  Pinecone
+                                                (400 chars,     (all-MiniLM-     (vector
+                                                100 overlap)     L6-v2)          store)
+```
+
+### Self-RAG Query Pipeline (LangGraph)
+
+When a user asks a question, it flows through an agentic graph that decides whether to retrieve, validates its own answers, and self-corrects:
+
+```
+                         +-------------------+
+                         |   User Question   |
+                         +--------+----------+
+                                  |
+                                  v
+                      +-----------+-----------+
+                      |  Decide Retrieval     |
+                      |  (needs documents?)   |
+                      +-----+----------+------+
+                            |          |
+                     YES    |          |   NO
+                            v          v
+                  +---------+--+   +---+---------------+
+                  |  Retrieve  |   |  Direct Generate  |----> Final Answer
+                  |  (Pinecone)|   |  (general knowledge)
+                  +-----+------+   +-------------------+
+                        |
+                        v
+              +---------+---------+
+              |  Grade Documents  |
+              |  (relevant?)      |
+              +----+--------+-----+
+                   |        |
+              RELEVANT   NO RELEVANT DOCS
+                   |        |
+                   v        v
+          +--------+----+  +--------------+
+          |  Generate   |  | "No reliable |----> Final Answer
+          |  from       |  |  answer"     |
+          |  Context    |  +--------------+
+          +------+------+
+                 |
+                 v
+        +--------+-----------+
+        |  Check Hallucination|
+        |  (grounded in docs?)|
+        +---+------+-----+---+
+            |      |     |
+         FULLY  PARTIAL/ MAX
+       SUPPORTED  NOT   RETRIES
+            |   SUPPORTED  |
+            |      |       v
+            |      v    +---------+
+            |  +---+--+ | "No    |----> Final Answer
+            |  |Revise| | reliable|
+            |  |Answer|--+ answer"|
+            |  +------+ +---------+
+            v     (loops back to Check Hallucination,
+     +------+--------+     up to 3 revisions)
+     | Check Usefulness|
+     | (answers the    |
+     |  question?)     |
+     +---+--------+----+
+         |        |
+       USEFUL  NOT USEFUL
+         |        |
+         v        v
+   Final Answer  +----------+
+                 | Rewrite  |
+                 | Query    |---> (loops back to Retrieve,
+                 +----------+      up to 3 rewrites)
+```
+
+### Key Design Decisions
+
+| Component | Choice | Reason |
+|-----------|--------|--------|
+| LLM | Groq + llama-3.3-70b | Fast inference, structured output support |
+| Embeddings | all-MiniLM-L6-v2 | Lightweight, 384-dim, good semantic quality |
+| Vector DB | Pinecone (serverless) | Managed, metadata filtering per document |
+| Graph engine | LangGraph | Native support for cycles, conditional edges |
+| Chat storage | SQLite | Zero-config, local, sufficient for single-user |
+| Config | config.yaml | All thresholds in one place, no hardcoded values |
 
 ## Setup & Installation
 
