@@ -1,5 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
 
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class RelevanceGrade(BaseModel):
-    is_relevant: bool
+    is_relevant: Literal["yes", "no"]
 
 
 def _grade_single_doc(structured_llm, question: str, doc, index: int):
@@ -25,7 +26,8 @@ def _grade_single_doc(structured_llm, question: str, doc, index: int):
             SystemMessage(content="You are a relevance grading system."),
             HumanMessage(content=prompt),
         ])
-        return index, result.is_relevant, doc.metadata.get("pdf_id", "unknown")
+        is_relevant_bool = result.is_relevant == "yes"
+        return index, is_relevant_bool, doc.metadata.get("pdf_id", "unknown")
     except Exception:
         logger.exception("Error grading document at index %d", index)
         # On failure, include the document rather than silently drop it

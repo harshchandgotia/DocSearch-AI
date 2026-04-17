@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievalDecision(BaseModel):
-    retrieve: bool
+    retrieve: Literal["yes", "no"]
     reason: str
 
 
@@ -36,9 +37,10 @@ def decide_retrieval(state: SelfRAGState, llm, app_config: dict) -> dict:
             SystemMessage(content="You are a retrieval decision system."),
             HumanMessage(content=prompt),
         ])
+        needs_retrieval = result.retrieve == "yes"
         return {
-            "needs_retrieval": result.retrieve,
-            "retrieval_used": result.retrieve,
+            "needs_retrieval": needs_retrieval,
+            "retrieval_used": needs_retrieval,
         }
     except Exception:
         logger.exception("Retrieval decision failed; defaulting to retrieval.")
