@@ -4,10 +4,9 @@ streamlit
 sentence-transformers
 requests
 pinecone
-dotenv
+python-dotenv
 easyocr
 numpy
-openai
 pdf2image
 langchain
 langchain-openai
@@ -19,4 +18,3 @@ langchain-groq
 python-multipart
 langgraph
 pyyaml
-langchain-classic

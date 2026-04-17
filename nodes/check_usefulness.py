@@ -1,10 +1,13 @@
+import logging
 from typing import Literal
 
 from pydantic import BaseModel
-from langchain_classic.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
 from prompts.prompts import USEFULNESS_CHECK_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class UsefulnessCheck(BaseModel):
@@ -25,4 +28,6 @@ def check_usefulness(state: SelfRAGState, llm, app_config: dict) -> dict:
         ])
         return {"is_useful": result.is_useful}
     except Exception:
+        logger.exception("Usefulness check failed; defaulting to useful.")
         return {"is_useful": "useful"}
+

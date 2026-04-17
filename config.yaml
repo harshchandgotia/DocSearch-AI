@@ -1,6 +1,6 @@
 llm:
   groq_model: "llama-3.3-70b-versatile"
-  temperature: 0
+  temperature: 0.2
   max_tokens: 512
 
 embeddings:
@@ -9,7 +9,10 @@ embeddings:
 self_rag:
   max_revision_retries: 3
   max_rewrite_retries: 3
-  retrieval_k: 4
+  retrieval_k: 6
 
 database:
   path: "./chat_history.db"
+
+processing:
+  ocr_max_workers: 4

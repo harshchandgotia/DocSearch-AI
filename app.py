@@ -35,15 +35,41 @@ def api_available():
     return bool(api_key and api_key.strip())
 
 
-def fetch_sessions():
-    if not api_available():
-        return
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_sessions(url: str, token: str):
+    if not token or not token.strip():
+        return []
     try:
-        resp = requests.get(f"{api_url}/sessions", headers=get_headers(), timeout=10)
+        resp = requests.get(f"{url}/sessions", headers={"Authorization": f"Bearer {token}"}, timeout=10)
         if resp.status_code == 200:
-            st.session_state.sessions_list = resp.json().get("sessions", [])
+            return resp.json().get("sessions", [])
     except Exception:
         pass
+    return []
+
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_documents(url: str, token: str):
+    if not token or not token.strip():
+        return {}
+    try:
+        resp = requests.get(f"{url}/documents", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("documents", {})
+    except Exception:
+        pass
+    return {}
+
+def fetch_sessions():
+    st.session_state.sessions_list = get_cached_sessions(api_url, api_key)
+
+
+def fetch_documents():
+    """Load the persisted pdf_id → filename mapping from the API."""
+    server_docs = get_cached_documents(api_url, api_key)
+    # Merge: keep any docs already in session state, add server-side ones
+    merged = {**server_docs, **st.session_state.documents}
+    st.session_state.documents = merged
+
 
 
 def load_session_messages(session_id):
@@ -88,6 +114,9 @@ with st.sidebar:
     st.divider()
     st.subheader("Indexed Documents")
 
+    # Load persisted documents from API on each render
+    fetch_documents()
+
     if st.session_state.documents:
         for pdf_id, filename in list(st.session_state.documents.items()):
             col_name, col_btn = st.columns([4, 1])
@@ -104,6 +133,7 @@ with st.sidebar:
                             )
                             if resp.status_code == 200:
                                 del st.session_state.documents[pdf_id]
+                                get_cached_documents.clear()
                                 st.rerun()
                             else:
                                 st.error(f"Delete failed: {resp.json().get('error', 'unknown')}")
@@ -167,6 +197,7 @@ with st.sidebar:
                             st.session_state.active_session_pdf_ids = data["pinned_pdf_ids"]
                             st.session_state.active_session_messages = []
                             st.session_state.show_new_chat_form = False
+                            get_cached_sessions.clear()
                             st.rerun()
                         else:
                             st.error(f"Failed: {resp.json().get('error', 'unknown')}")
@@ -210,6 +241,7 @@ with st.sidebar:
                             st.session_state.active_session_id = None
                             st.session_state.active_session_messages = []
                             st.session_state.active_session_pdf_ids = []
+                        get_cached_sessions.clear()
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Error: {exc}")
@@ -334,6 +366,7 @@ with tab_upload:
                         errors.append(f"Unexpected error during URL indexing: {exc}")
 
             if combined_results:
+                get_cached_documents.clear()
                 st.session_state.documents.update(combined_results)
                 st.success(f"Indexed {len(combined_results)} document(s) successfully.")
                 for pid, fname in combined_results.items():
@@ -467,6 +500,7 @@ with tab_chat:
                                     "sources": data.get("sources"),
                                     "retrieval_used": data.get("retrieval_used"),
                                 })
+                                get_cached_sessions.clear()
 
                             elif resp.status_code == 401:
                                 st.error("Authentication failed -- check your API key.")

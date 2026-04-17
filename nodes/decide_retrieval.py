@@ -1,8 +1,12 @@
+import logging
+
 from pydantic import BaseModel
-from langchain_classic.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
 from prompts.prompts import RETRIEVAL_DECISION_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class RetrievalDecision(BaseModel):
@@ -37,4 +41,6 @@ def decide_retrieval(state: SelfRAGState, llm, app_config: dict) -> dict:
             "retrieval_used": result.retrieve,
         }
     except Exception:
+        logger.exception("Retrieval decision failed; defaulting to retrieval.")
         return {"needs_retrieval": True, "retrieval_used": True}
+

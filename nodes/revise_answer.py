@@ -1,7 +1,11 @@
-from langchain_classic.schema import HumanMessage, SystemMessage
+import logging
+
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
 from prompts.prompts import REVISE_ANSWER_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 def revise_answer(state: SelfRAGState, llm, app_config: dict) -> dict:
@@ -19,4 +23,9 @@ def revise_answer(state: SelfRAGState, llm, app_config: dict) -> dict:
             "revision_count": state.get("revision_count", 0) + 1,
         }
     except Exception:
-        return {"revision_count": state.get("revision_count", 0) + 1}
+        logger.exception("Answer revision failed; keeping original answer.")
+        return {
+            "answer": state.get("answer", ""),
+            "revision_count": state.get("revision_count", 0) + 1,
+        }
+

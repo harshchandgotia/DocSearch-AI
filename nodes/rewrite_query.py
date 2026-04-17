@@ -1,8 +1,12 @@
+import logging
+
 from pydantic import BaseModel
-from langchain_classic.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
 from prompts.prompts import REWRITE_QUERY_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class RewriteResult(BaseModel):
@@ -24,4 +28,10 @@ def rewrite_query(state: SelfRAGState, llm, app_config: dict) -> dict:
             "rewrite_count": state.get("rewrite_count", 0) + 1,
         }
     except Exception:
-        return {"rewrite_count": state.get("rewrite_count", 0) + 1}
+        logger.exception("Query rewrite failed; keeping original query.")
+        # Fall back to the original question so the next retrieve isn't a no-op
+        return {
+            "retrieval_query": state.get("retrieval_query") or state["question"],
+            "rewrite_count": state.get("rewrite_count", 0) + 1,
+        }
+

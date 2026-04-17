@@ -1,22 +1,16 @@
-from langchain_classic.schema import HumanMessage, SystemMessage
+import logging
+
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
+from nodes import format_conversation_context
 from prompts.prompts import DIRECT_GENERATE_PROMPT
 
-
-def _format_conversation_context(conversation_history: list[dict]) -> str:
-    if not conversation_history:
-        return ""
-    recent = conversation_history[-6:]
-    lines = []
-    for msg in recent:
-        role = msg["role"].capitalize()
-        lines.append(f"{role}: {msg['content']}")
-    return "Prior conversation:\n" + "\n".join(lines)
+logger = logging.getLogger(__name__)
 
 
 def direct_generate(state: SelfRAGState, llm, app_config: dict) -> dict:
-    conversation_context = _format_conversation_context(
+    conversation_context = format_conversation_context(
         state.get("conversation_history", [])
     )
 
@@ -29,6 +23,16 @@ def direct_generate(state: SelfRAGState, llm, app_config: dict) -> dict:
             SystemMessage(content="You are a helpful assistant."),
             HumanMessage(content=prompt),
         ])
-        return {"answer": response.content}
+        return {
+            "answer": response.content,
+            "context": "",
+            "retrieval_used": False,
+        }
     except Exception:
-        return {"answer": "I encountered an error while generating the answer."}
+        logger.exception("Direct generation failed.")
+        return {
+            "answer": "I encountered an error while generating the answer.",
+            "context": "",
+            "retrieval_used": False,
+        }
+

@@ -66,7 +66,7 @@ def build_graph(config: dict, llm, vector_store):
     graph.add_conditional_edges(
         "check_usefulness",
         route_after_usefulness_check,
-        {"END": END, "rewrite_query": "rewrite_query"},
+        {END: END, "rewrite_query": "rewrite_query"},
     )
 
     graph.add_edge("rewrite_query", "retrieve")

@@ -43,6 +43,13 @@ def _init_db():
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                pdf_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -185,6 +192,39 @@ def update_session_pdf_ids(session_id: str, pinned_pdf_ids: list[str]):
             "UPDATE sessions SET pinned_pdf_ids = ? WHERE session_id = ?",
             (json.dumps(pinned_pdf_ids), session_id),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_document(pdf_id: str, filename: str):
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO documents (pdf_id, filename, created_at) VALUES (?, ?, ?)",
+            (pdf_id, filename, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_documents() -> dict:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT pdf_id, filename FROM documents ORDER BY created_at DESC"
+        ).fetchall()
+        return {row["pdf_id"]: row["filename"] for row in rows}
+    finally:
+        conn.close()
+
+
+def delete_document_record(pdf_id: str):
+    conn = _get_connection()
+    try:
+        conn.execute("DELETE FROM documents WHERE pdf_id = ?", (pdf_id,))
         conn.commit()
     finally:
         conn.close()

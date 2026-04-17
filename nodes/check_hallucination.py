@@ -1,10 +1,13 @@
+import logging
 from typing import Literal
 
 from pydantic import BaseModel
-from langchain_classic.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import SelfRAGState
 from prompts.prompts import HALLUCINATION_CHECK_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class HallucinationCheck(BaseModel):
@@ -25,4 +28,6 @@ def check_hallucination(state: SelfRAGState, llm, app_config: dict) -> dict:
         ])
         return {"is_supported": result.support}
     except Exception:
+        logger.exception("Hallucination check failed; defaulting to not_supported.")
         return {"is_supported": "not_supported"}
+
