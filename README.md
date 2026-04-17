@@ -23,7 +23,7 @@ The system has two pipelines: **Document Ingestion** and **Self-RAG Query**.
 ```mermaid
 flowchart LR
     A([PDF Upload / URL]) --> B[pdf2image\n+ EasyOCR]
-    B --> C[Chunking\n400 chars · 100 overlap]
+    B --> C[Chunking\n]
     C --> D[Embeddings\nall-MiniLM-L6-v2]
     D --> E[(Pinecone\nvector store)]
 ```
