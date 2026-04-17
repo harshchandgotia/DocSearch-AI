@@ -1,1 +1,5 @@
 *.env
+graph/__pycache__
+nodes/__pycache__
+prompts/__pycache__
+__pycache__
